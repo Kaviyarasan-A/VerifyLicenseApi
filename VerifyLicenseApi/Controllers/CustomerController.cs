@@ -9,27 +9,27 @@ namespace VerifyLicenseApi.Controllers
     {
         private readonly DatabaseService _databaseService;
 
+        // Constructor to inject DatabaseService
         public CustomerController(DatabaseService databaseService)
         {
             _databaseService = databaseService;
         }
 
-        // Get Customer and Companies by CustomerId
-        [HttpGet("GetCustomerWithCompanies/{customerId}")]
-        public async Task<IActionResult> GetCustomerWithCompanies(long customerId)
+        // Get Customer and Companies by LicenseKey
+        [HttpGet("GetCustomerWithCompanies/{licenseKey}")]
+        public async Task<IActionResult> GetCustomerWithCompanies(string licenseKey)
         {
-            var customerData = await _databaseService.GetCustomerAndCompaniesAsync(customerId);
+            var customerData = await _databaseService.GetCustomerAndCompaniesByLicenseKeyAsync(licenseKey);
 
             if (customerData == null)
             {
-                return NotFound("Customer not found.");
+                return NotFound("Customer with the given LicenseKey not found.");
             }
 
-            // Return Customer Name and Companies (for dropdown)
             return Ok(customerData);
         }
 
-        // Get full details of a selected company by CompanyName
+        // Get a company by name (company name)
         [HttpGet("GetCompanyDetailsByName/{companyName}")]
         public async Task<IActionResult> GetCompanyDetailsByName(string companyName)
         {
@@ -40,7 +40,6 @@ namespace VerifyLicenseApi.Controllers
                 return NotFound("Company not found.");
             }
 
-            // Return company details
             return Ok(companyDetails);
         }
 
@@ -48,7 +47,6 @@ namespace VerifyLicenseApi.Controllers
         [HttpGet("GetCompanyConnectionString/{companyId}/{connectionType}")]
         public async Task<IActionResult> GetCompanyConnectionString(int companyId, string connectionType)
         {
-            // Ensure connectionType is either "Online" or "Offline"
             if (connectionType != "Online" && connectionType != "Offline")
             {
                 return BadRequest("Invalid connection type. It should be either 'Online' or 'Offline'.");

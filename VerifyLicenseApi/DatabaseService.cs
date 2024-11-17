@@ -1,6 +1,7 @@
 ﻿using Dapper;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Threading.Tasks;
 using static VerifyLicenseApi.ValidationModel;
 
@@ -10,40 +11,68 @@ namespace VerifyLicenseApi
     {
         private readonly IDbConnection _dbConnection;
 
+        // Constructor to initialize database connection
         public DatabaseService(IDbConnection dbConnection)
         {
             _dbConnection = dbConnection;
         }
 
-        // Get Customer Header and all companies by CustomerId in a single query
-        public async Task<CustomerWithCompanies> GetCustomerAndCompaniesAsync(long customerId)
+        // Get Customer Header and all companies by LicenseKey in a single query
+        public async Task<CustomerWithCompanies> GetCustomerAndCompaniesByLicenseKeyAsync(string licenseKey)
         {
-            // Query to fetch customer details
-            var customerQuery = "SELECT * FROM Customer_Header WHERE CustomerId = @CustomerId";
+            // SQL query to fetch customer and associated companies in a single query using JOIN
+            var query = @"
+                SELECT 
+                    ch.CustomerID,
+                    ch.CustomerName,
+                    ch.Country,
+                    ch.CustomerAddress,
+                    ch.LicenseKey,
+                    cd.CompanyId,
+                    cd.CompanyName,
+                    cd.ConnectionStringOnline,
+                    cd.ConnectionStringOffline,
+                    cd.Comment
+                FROM 
+                    Customer_Header ch
+                JOIN 
+                    Customer_Details cd ON ch.CustomerID = cd.CustomerID
+                WHERE 
+                    ch.LicenseKey = @LicenseKey;
+            ";
 
-            // Query to fetch associated companies
-            var companiesQuery = "SELECT * FROM Customer_Details WHERE CustomerId = @CustomerId";
+            // Execute the query with the provided LicenseKey
+            var customerData = await _dbConnection.QueryAsync<CustomerHeader, CustomerDetails, CustomerWithCompanies>(
+                query,
+                (customer, company) =>
+                {
+                    // Return the combined customer and associated companies
+                    return new CustomerWithCompanies
+                    {
+                        Customer = customer,
+                        Companies = new List<CustomerDetails> { company } // Start with the first company
+                    };
+                },
+                new { LicenseKey = licenseKey },
+                splitOn: "CompanyId" // Split based on the CompanyId field in the result set
+            );
 
-            using (var multi = await _dbConnection.QueryMultipleAsync(customerQuery + ";" + companiesQuery, new { CustomerId = customerId }))
+            // If no customer is found, return null
+            if (customerData == null || !customerData.Any())
             {
-                // Fetch Customer details
-                var customer = await multi.ReadFirstOrDefaultAsync<CustomerHeader>();
-
-                // Fetch associated companies
-                var companies = await multi.ReadAsync<CustomerDetails>();
-
-                if (customer == null)
-                {
-                    return null; // If no customer is found
-                }
-
-                // Return customer with their companies
-                return new CustomerWithCompanies
-                {
-                    Customer = customer,
-                    Companies = companies
-                };
+                return null;
             }
+
+            // Return the first matched customer (since it's a 1-to-many relationship)
+            var result = customerData.FirstOrDefault();
+
+            // If the customer has multiple companies, append them
+            foreach (var company in customerData.Skip(1))
+            {
+                result.Companies.Add(company.Companies.First());
+            }
+
+            return result;
         }
 
         // Get a company by name (company name)
@@ -72,6 +101,6 @@ namespace VerifyLicenseApi
     public class CustomerWithCompanies
     {
         public CustomerHeader Customer { get; set; }
-        public IEnumerable<CustomerDetails> Companies { get; set; }
+        public List<CustomerDetails> Companies { get; set; } = new List<CustomerDetails>();
     }
 }
