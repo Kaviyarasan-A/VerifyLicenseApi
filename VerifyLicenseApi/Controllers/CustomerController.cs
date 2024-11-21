@@ -1,8 +1,15 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using System;
 using System.Threading.Tasks;
+using VerifyLicenseApi;
 
 namespace VerifyLicenseApi.Controllers
 {
+    public class LicenseInactiveException : Exception
+    {
+        public LicenseInactiveException(string message) : base(message) { }
+    }
+
     [Route("api/[controller]")]
     [ApiController]
     public class CustomerController : ControllerBase
@@ -19,15 +26,34 @@ namespace VerifyLicenseApi.Controllers
         [HttpGet("GetCustomerWithCompanies/{licenseKey}")]
         public async Task<IActionResult> GetCustomerWithCompanies(string licenseKey)
         {
-            var customerData = await _databaseService.GetCustomerAndCompaniesByLicenseKeyAsync(licenseKey);
-
-            if (customerData == null)
+            try
             {
-                return NotFound("Customer with the given LicenseKey not found.");
-            }
+                // Fetch the customer and associated companies based on the license key
+                var customerData = await _databaseService.GetCustomerAndCompaniesByLicenseKeyAsync(licenseKey);
 
-            return Ok(customerData);
+                // If no customer data is found, return not found
+                if (customerData == null)
+                {
+                    return BadRequest("Customer data is not available.");
+                }
+
+                // Return the customer data if the license is active
+                return Ok(customerData);
+            }
+            catch (LicenseInactiveException ex)
+            {
+                // Catch the LicenseInactiveException and return a 200 OK response with the exception message
+                return Ok(ex.Message); // Return 200 OK with the message indicating the license is inactive
+            }
+            catch (Exception ex)
+            {
+                // Catch other unexpected exceptions and return a generic error
+                return StatusCode(500, "Internal server error: " + ex.Message);
+            }
         }
+
+
+
 
         // Get a company by name (company name)
         [HttpGet("GetCompanyDetailsByName/{companyName}")]

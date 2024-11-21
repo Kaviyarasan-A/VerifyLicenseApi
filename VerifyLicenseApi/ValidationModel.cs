@@ -6,9 +6,10 @@
         {
             public long CustomerId { get; set; }
             public string CustomerName { get; set; }
-            public string CustomerCountry { get; set; }
+            public string Country { get; set; }
             public string CustomerAddress { get; set; }
             public string LicenseKey { get; set; }
+            public string Status { get; set; }
         }
 
         public class CustomerDetails

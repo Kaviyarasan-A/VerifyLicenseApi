@@ -1,8 +1,11 @@
-﻿using Dapper;
+﻿using Azure.Core;
+using Dapper;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
+using VerifyLicenseApi.Controllers;
 using static VerifyLicenseApi.ValidationModel;
 
 namespace VerifyLicenseApi
@@ -17,10 +20,9 @@ namespace VerifyLicenseApi
             _dbConnection = dbConnection;
         }
 
-        // Get Customer Header and all companies by LicenseKey in a single query
+        // Existing method to get customer and associated companies
         public async Task<CustomerWithCompanies> GetCustomerAndCompaniesByLicenseKeyAsync(string licenseKey)
         {
-            // SQL query to fetch customer and associated companies in a single query using JOIN
             var query = @"
                 SELECT 
                     ch.CustomerID,
@@ -28,6 +30,7 @@ namespace VerifyLicenseApi
                     ch.Country,
                     ch.CustomerAddress,
                     ch.LicenseKey,
+                    ch.Status,
                     cd.CompanyId,
                     cd.CompanyName,
                     cd.ConnectionStringOnline,
@@ -41,38 +44,65 @@ namespace VerifyLicenseApi
                     ch.LicenseKey = @LicenseKey;
             ";
 
-            // Execute the query with the provided LicenseKey
             var customerData = await _dbConnection.QueryAsync<CustomerHeader, CustomerDetails, CustomerWithCompanies>(
                 query,
                 (customer, company) =>
                 {
-                    // Return the combined customer and associated companies
                     return new CustomerWithCompanies
                     {
                         Customer = customer,
-                        Companies = new List<CustomerDetails> { company } // Start with the first company
+                        Companies = new List<CustomerDetails> { company }
                     };
                 },
                 new { LicenseKey = licenseKey },
-                splitOn: "CompanyId" // Split based on the CompanyId field in the result set
+                splitOn: "CompanyId"
             );
 
-            // If no customer is found, return null
+            // If no customer data is found, return null
             if (customerData == null || !customerData.Any())
             {
                 return null;
             }
 
-            // Return the first matched customer (since it's a 1-to-many relationship)
+            // Correctly declare and initialize 'result' by getting the first customer
             var result = customerData.FirstOrDefault();
 
-            // If the customer has multiple companies, append them
+            // Check if the Status is not "Active" and return null if it's inactive
+            if (result.Customer.Status.Trim() != "Active")
+            {
+                throw new LicenseInactiveException("The license is inactive. Please check your license status.");
+            }
+
+
+            // Log License Access Details into the LogFile table (newly added)
+            await LogLicenseAccessAsync(result.Customer.LicenseKey, result.Customer.CustomerId);
+
+            // If the user is active, add additional companies (if any)
             foreach (var company in customerData.Skip(1))
             {
                 result.Companies.Add(company.Companies.First());
             }
 
-            return result;
+            return result; // Return the active customer with associated companies
+        }
+
+        // New method to log LicenseKey access details into the LogFile table
+        public async Task LogLicenseAccessAsync(string licenseKey, long customerId)
+        {
+            var query = @"
+                INSERT INTO LicenseAccessLog (LicenseKey, CustomerId)
+                VALUES (@LicenseKey,  @CustomerId);
+            ";
+
+            var parameters = new
+            {
+                LicenseKey = licenseKey,
+                 // Current date and time
+                CustomerId = customerId
+            };
+
+            // Execute the query to insert the log entry
+            await _dbConnection.ExecuteAsync(query, parameters);
         }
 
         // Get a company by name (company name)
@@ -101,6 +131,7 @@ namespace VerifyLicenseApi
     public class CustomerWithCompanies
     {
         public CustomerHeader Customer { get; set; }
+        public string Status { get; set; }
         public List<CustomerDetails> Companies { get; set; } = new List<CustomerDetails>();
     }
 }
